@@ -14,6 +14,37 @@ INSTAGRAM_PATTERN = re.compile(
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
+def find_video_url(data):
+    """Parcourt récursivement la réponse API pour trouver une URL vidéo."""
+    if isinstance(data, str) and data.startswith("http") and ".mp4" in data:
+        return data
+    if isinstance(data, list):
+        for item in data:
+            result = find_video_url(item)
+            if result:
+                return result
+    if isinstance(data, dict):
+        # Cherche d'abord dans les clés connues pour les vidéos
+        for key in ("url", "video_url", "download_url", "src", "link"):
+            val = data.get(key)
+            if val and isinstance(val, str) and val.startswith("http"):
+                # Priorité aux mp4
+                if ".mp4" in val or "video" in val.lower():
+                    return val
+        # Cherche dans les clés de type liste/dict
+        for key in ("media", "data", "result", "medias", "videos", "items"):
+            val = data.get(key)
+            if val:
+                result = find_video_url(val)
+                if result:
+                    return result
+        # Dernier recours : n'importe quelle URL http
+        for key in ("url", "video_url", "download_url", "src", "link"):
+            val = data.get(key)
+            if val and isinstance(val, str) and val.startswith("http"):
+                return val
+    return None
+
 def download_via_rapidapi(url, output_dir):
     headers = {
         "Content-Type": "application/json",
@@ -28,28 +59,15 @@ def download_via_rapidapi(url, output_dir):
     )
     resp.raise_for_status()
     data = resp.json()
-    log.info("Réponse API: %s", data)
+    log.info("Réponse API: %s", str(data)[:300])
 
-    video_url = None
-    if isinstance(data, list) and data:
-        video_url = data[0].get("url") or data[0].get("video_url") or data[0].get("src")
-    elif isinstance(data, dict):
-        video_url = (data.get("url") or data.get("video_url")
-                     or data.get("download_url") or data.get("src"))
-        if not video_url:
-            for key in ("data", "result", "medias", "videos"):
-                d = data.get(key)
-                if isinstance(d, list) and d:
-                    video_url = d[0].get("url") or d[0].get("video_url") or d[0].get("src")
-                    break
-                elif isinstance(d, dict):
-                    video_url = d.get("url") or d.get("video_url") or d.get("src")
-                    break
+    video_url = find_video_url(data)
 
     if not video_url:
         log.error("Pas de video_url dans: %s", data)
         return None
 
+    log.info("Téléchargement vidéo: %s", video_url[:80])
     video_resp = requests.get(video_url, timeout=60, stream=True)
     video_resp.raise_for_status()
     filepath = os.path.join(output_dir, "reel.mp4")
