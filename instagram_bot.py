@@ -14,35 +14,41 @@ INSTAGRAM_PATTERN = re.compile(
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
+def clean_url(url):
+    """Nettoie une URL en supprimant les caractères invisibles."""
+    if not url:
+        return url
+    return url.strip().replace("\n", "").replace("\r", "").replace(" ", "")
+
 def find_video_url(data):
-    """Parcourt récursivement la réponse API pour trouver une URL vidéo."""
-    if isinstance(data, str) and data.startswith("http") and ".mp4" in data:
-        return data
+    if isinstance(data, str):
+        cleaned = clean_url(data)
+        if cleaned.startswith("http") and ".mp4" in cleaned:
+            return cleaned
     if isinstance(data, list):
         for item in data:
             result = find_video_url(item)
             if result:
                 return result
     if isinstance(data, dict):
-        # Cherche d'abord dans les clés connues pour les vidéos
         for key in ("url", "video_url", "download_url", "src", "link"):
             val = data.get(key)
-            if val and isinstance(val, str) and val.startswith("http"):
-                # Priorité aux mp4
-                if ".mp4" in val or "video" in val.lower():
-                    return val
-        # Cherche dans les clés de type liste/dict
+            if val and isinstance(val, str):
+                cleaned = clean_url(val)
+                if cleaned.startswith("http") and (".mp4" in cleaned or "video" in cleaned.lower()):
+                    return cleaned
         for key in ("media", "data", "result", "medias", "videos", "items"):
             val = data.get(key)
             if val:
                 result = find_video_url(val)
                 if result:
                     return result
-        # Dernier recours : n'importe quelle URL http
         for key in ("url", "video_url", "download_url", "src", "link"):
             val = data.get(key)
-            if val and isinstance(val, str) and val.startswith("http"):
-                return val
+            if val and isinstance(val, str):
+                cleaned = clean_url(val)
+                if cleaned.startswith("http"):
+                    return cleaned
     return None
 
 def download_via_rapidapi(url, output_dir):
@@ -67,7 +73,7 @@ def download_via_rapidapi(url, output_dir):
         log.error("Pas de video_url dans: %s", data)
         return None
 
-    log.info("Téléchargement vidéo: %s", video_url[:80])
+    log.info("Téléchargement: %s", video_url[:80])
     video_resp = requests.get(video_url, timeout=60, stream=True)
     video_resp.raise_for_status()
     filepath = os.path.join(output_dir, "reel.mp4")
